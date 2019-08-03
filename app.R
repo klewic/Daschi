@@ -7,15 +7,15 @@ library("RColorBrewer")
 library("RSocrata")
 library("lubridate")
 
-todayM5Yrs <- Sys.Date() - years(1)
+todayMinus3Mo <- Sys.Date() - months(3) # if running locally, feel free to extend this out
 
 crimes <- read.socrata(
   paste('https://data.cityofchicago.org/resource/6zsd-86xi.json?$where=date>="', 
-        todayM5Yrs, '"', 
+        todayMinus3Mo, '"', 
         sep = ""),
-  app_token = "XXXXX", # replace with your creds
-  email     = "XXXXX", # replace with your creds
-  password  = "XXXXX" # replace with your creds
+  app_token = "", # replace with your creds
+  email     = "", # replace with your creds
+  password  = "" # replace with your creds
 )
 
 crimes <- crimes[, c("case_number", "date", "block", "iucr", "primary_type", 
@@ -57,16 +57,18 @@ ui <- dashboardPage(
       
       sliderInput("Lat", 
                   label = "Latitude:",
-                  min = min(crimes[, LatRound]), max = max(crimes[, LatRound]), 
-                  value = c(min(crimes[, LatRound]), max(crimes[, LatRound])),
+                  min = max( min(crimes[, LatRound]), 41.6 ), 
+                  max = min( max(crimes[, LatRound]), 42.2 ),
+                  value = c(max( min(crimes[, LatRound]), 41.6 ), 
+                            min( max(crimes[, LatRound]), 42.2 )),
                   step = 0.01),
       
       sliderInput("Long", 
                   label = "Longitude:",
-                  min = min(crimes[, LongRound]), 
-                  max = max(crimes[, LongRound]), 
-                  value = c(min(crimes[, LongRound]), 
-                            max(crimes[, LongRound])),
+                  min = max( min(crimes[, LongRound]), -87.8 ), 
+                  max = min( max(crimes[, LongRound]), -87.5 ), 
+                  value = c(max( min(crimes[, LongRound]), -87.8 ), 
+                            min( max(crimes[, LongRound]), -87.5 )),
                   step = 0.01),
       
       dateRangeInput("DateRange", label="Date Range:", 
@@ -97,8 +99,8 @@ ui <- dashboardPage(
     
     dashboardBody(
       fluidPage(
-        fluidRow(splitLayout(plotOutput("bar1Y"), plotOutput("bar1N"))),
-        fluidRow(splitLayout(plotOutput("mapY"), plotOutput("mapN"))),
+        fluidRow(splitLayout(plotOutput("bar1Y"), plotOutput("bar1N")), style='margin-bottom:8px;'),
+        fluidRow(splitLayout(plotOutput("mapY"), plotOutput("mapN")), style='margin-bottom:8px;'),
         fluidRow(splitLayout(plotOutput("bar2Y"), plotOutput("bar2N")))
     ))
 )
@@ -135,12 +137,13 @@ server <- function(input, output) {
     })
   })
   
-  
-  
   levelData <- reactive({
     
     print(data())
     print(str(data()))
+    validate(need(nrow(data()) > 0, 
+             "No crimes of the selected type within defined date/region")
+    )
     
     levelData <- data()[, .(CrimeCount = .N), keyby = .(PrimDesc)]
     
@@ -165,17 +168,15 @@ server <- function(input, output) {
       if(input$graphType=="Stacked") {
         validate(need(
           length(input$PrimDesc) <= 9 & input$crimeSel == "Manual", 
-          "Too many crime types! Limit selection to 9 for graph readability"))  # only 9 colors so have to restrict selection to 9
+          "Too many crime types! Limit selection to 9 for graph readability"))  # only 9 colors - restrict selection to 9
       }
-        
+      
       maxY <- data()[, .(CrimeCount = .N), keyby = .(Date, Arrest)]
       maxY <- max(maxY$CrimeCount)
       
       crimeGraphDataY <- data()[Arrest==TRUE, 
                                 .(CrimeCount = .N), 
                                 keyby = .(Date)]
-      
-      
       
       crimeGraphDataYFill <- data()[Arrest==TRUE, 
                                     .(CrimeCount = .N), 
@@ -186,7 +187,7 @@ server <- function(input, output) {
       
       crimeGraphDataYFill$PrimDesc <- factor(crimeGraphDataYFill$PrimDesc,
                                              levels = levelData)
-      
+
       colorNums <- sort(strtoi(
         names(
           levelData[unique(crimeGraphDataYFill$PrimDesc)])))
@@ -194,7 +195,7 @@ server <- function(input, output) {
       
       ggplot(crimeGraphDataY, aes(x = Date, y = CrimeCount)) + 
       {if(input$matchAx=="Yes") ylim(0, maxY)} +
-        scale_x_date(breaks = pretty(crimeGraphDataY$Date, n = 10), 
+        scale_x_date(breaks = pretty(crimeGraphDataY$Date, n = 9), 
                      date_labels = "%b-%d-%Y") +
         {if(input$graphType=="Bar") geom_bar(fill = "#A50F15",                  
                                              color = "#A50F15", 
@@ -241,7 +242,7 @@ server <- function(input, output) {
       if(input$graphType=="Stacked") {
         validate(need(
           length(input$PrimDesc) <= 9 & input$crimeSel == "Manual", 
-          "Too many crime types! Limit selection to 9 for graph readability"))  # only 9 colors so have to restrict selection to 9
+          "Too many crime types! Limit selection to 9 for graph readability"))  # only 9 colors - restrict selection to 9
       }
       
       maxY <- data()[, .(CrimeCount = .N), keyby = .(Date, Arrest)]
@@ -267,7 +268,7 @@ server <- function(input, output) {
       
       ggplot(crimeGraphDataN, aes(x = Date, y = CrimeCount)) + 
       {if(input$matchAx=="Yes") ylim(0, maxY)} +
-        scale_x_date(breaks = pretty(crimeGraphDataN$Date, n = 10), 
+        scale_x_date(breaks = pretty(crimeGraphDataN$Date, n = 9), 
                      date_labels = "%b-%d-%Y") +
         {if(input$graphType=="Bar") geom_bar(fill = "#A50F15", 
                                              color = "#A50F15", 
@@ -404,13 +405,13 @@ server <- function(input, output) {
 
   map <- reactive({
     
-    validate(
-      need(length(data()) >= 1, 
-           "No crimes of chosen type within the given parameters")
-    )
-
-    mapLat <- c(min(data()[, LatRound]), max(data()[, LatRound]))
-    mapLong <- c(min(data()[, LongRound]), max(data()[, LongRound]))
+    input$go
+    
+    isolate({
+        mapLat <- c(input$Lat[1], input$Lat[2])
+        mapLong <- c(input$Long[1], input$Long[2])
+    })
+    
     bbox <- make_bbox(mapLong, mapLat, f=0.00)
     myMap <- get_map(bbox, maptype="toner-lite", source="stamen")
 
@@ -424,7 +425,7 @@ server <- function(input, output) {
   
   output$mapY <- renderPlot({
     
-    map() +
+    if (nrow(data()) > 0) { map() +
       geom_bin2d(data=data()[Arrest==TRUE],
                  aes(x=LongRound, y=LatRound), alpha = 0.5,
                  binwidth = c(.01, .01)) +
@@ -432,12 +433,12 @@ server <- function(input, output) {
                           name = "# Crimes") +
       theme(axis.title.x = element_blank(),
             axis.title.y = element_blank())                                     # interactive graphs with plot_ly?  Maybe a project for v2
-      
+    } else { map() }    
   })
   
   output$mapN <- renderPlot({
     
-    map() +
+    if (nrow(data()) > 0) { map() +
       geom_bin2d(data=data()[Arrest==FALSE],
                  aes(x=LongRound, y=LatRound), alpha=0.5,
                  binwidth = c(.01, .01)) +
@@ -445,7 +446,7 @@ server <- function(input, output) {
                           name = "# Crimes") +
       theme(axis.title.x = element_blank(),
             axis.title.y = element_blank())
-    
+    } else { map() }
   })
 
 }
