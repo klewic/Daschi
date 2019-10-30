@@ -7,6 +7,6 @@ Perhaps there's room in the future for more Chicago data based dashboards?
 
 You can play with the app here https://daschi.shinyapps.io/daschi/
 though the version of the app posted online can only pull the last three months of data (loading more
-causes timeout errors on the online app, but it can be done if you run the app locally!)
+causes timeout errors on the online app, but it can be done if you run the app locally)
 
-Have fun exploring!
+Enjoy!
